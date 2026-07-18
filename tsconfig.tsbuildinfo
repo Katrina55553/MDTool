@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/editor.tsx","./src/components/mermaidblock.tsx","./src/components/preview.tsx","./src/components/toolbar.tsx","./src/context/themecontext.tsx","./src/hooks/uselocalstorage.ts","./src/utils/samplecontent.ts"],"errors":true,"version":"5.9.3"}
