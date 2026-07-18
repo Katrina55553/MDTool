@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import MermaidBlock from './MermaidBlock'
@@ -12,7 +13,7 @@ export default function Preview({ content }: PreviewProps) {
   return (
     <div className="preview">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]]}
         components={{
           code({ className, children, ...rest }) {

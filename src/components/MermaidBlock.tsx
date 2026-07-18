@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import mermaid from 'mermaid'
 import { useTheme } from '../context/ThemeContext'
 
@@ -10,33 +10,30 @@ interface MermaidBlockProps {
 
 export default function MermaidBlock({ code }: MermaidBlockProps) {
   const { theme } = useTheme()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [svg, setSvg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const id = `mermaid-svg-${idCounter++}`
 
+    setError(null)
+    setSvg(null)
+
     mermaid.initialize({
       startOnLoad: false,
       theme: theme === 'dark' ? 'dark' : 'default',
       securityLevel: 'loose',
-      fontFamily: 'system-ui, sans-serif',
     })
 
     mermaid
       .render(id, code)
       .then(({ svg }) => {
-        if (cancelled) return
-        if (containerRef.current) {
-          containerRef.current.innerHTML = svg
-          setError(null)
-        }
+        if (!cancelled) setSvg(svg)
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        const message = err instanceof Error ? err.message : String(err)
-        setError(message)
+        setError(err instanceof Error ? err.message : String(err))
       })
 
     return () => {
@@ -47,5 +44,8 @@ export default function MermaidBlock({ code }: MermaidBlockProps) {
   if (error) {
     return <div className="mermaid-error">Mermaid 渲染失败：{error}</div>
   }
-  return <div className="mermaid" ref={containerRef} />
+  if (svg) {
+    return <div className="mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+  }
+  return <div className="mermaid">渲染中…</div>
 }
