@@ -123,6 +123,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const peerRef = useRef<Peer | null>(null)
   const connRef = useRef<DataConnection | null>(null)
   const pendingConnRef = useRef<DataConnection | null>(null)
+  const outgoingConnRef = useRef<DataConnection | null>(null)
   const onRemoteRef = useRef(onRemoteContent)
   onRemoteRef.current = onRemoteContent
 
@@ -305,6 +306,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     })
     conn.on('close', () => {
       if (connRef.current === conn) connRef.current = null
+      if (outgoingConnRef.current === conn) outgoingConnRef.current = null
       setAwaitingAccept(false)
       // 连接断开:清理所有接收中和发送中的传输
       receiversRef.current.clear()
@@ -316,9 +318,12 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       ))
       setStatus('waiting')
     })
-    conn.on('error', (err) => {
-      setError(err?.message ?? String(err))
-      setStatus('error')
+    conn.on('error', (err: unknown) => {
+      const e = err as { message?: string; type?: string }
+      setError(translatePeerError(e?.type, e?.message ?? String(err)))
+      setAwaitingAccept(false)
+      if (outgoingConnRef.current === conn) outgoingConnRef.current = null
+      setStatus('waiting')
     })
   }, [handleData])
 
@@ -331,6 +336,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     if (conn.open) onOpen()
     else conn.on('open', onOpen)
     bindLifecycle(conn, () => {
+      outgoingConnRef.current = null
       connRef.current = conn
       setAwaitingAccept(false)
       setStatus('connected')
@@ -432,8 +438,21 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     setError('')
     setAwaitingAccept(true)
     const conn = peer.connect(remoteId.trim(), { reliable: true })
+    outgoingConnRef.current = conn
     bindInitiator(conn)
   }, [bindInitiator])
+
+  // 主动方:取消尚未建立的连接请求
+  const cancelConnect = useCallback(() => {
+    const conn = outgoingConnRef.current
+    outgoingConnRef.current = null
+    if (conn) {
+      try { conn.close() } catch { /* 忽略 */ }
+    }
+    setAwaitingAccept(false)
+    setError('')
+    setStatus(peerRef.current ? 'waiting' : 'idle')
+  }, [])
 
   // 主动断开当前连接
   const disconnect = useCallback(() => {
@@ -694,6 +713,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     acceptConn,
     rejectConn,
     connect,
+    cancelConnect,
     disconnect,
     send,
     sendFile,

@@ -11,6 +11,7 @@ interface ToolbarProps {
   transfers: FileTransfer[]
   onInit: (id: string) => void
   onConnect: (remoteId: string) => void
+  onCancelConnect: () => void
   onDisconnect: () => void
   onAccept: () => void
   onReject: () => void
@@ -80,6 +81,7 @@ export default function Toolbar({
   transfers,
   onInit,
   onConnect,
+  onCancelConnect,
   onDisconnect,
   onAccept,
   onReject,
@@ -214,7 +216,12 @@ export default function Toolbar({
                 />
               </>
             ) : awaitingAccept ? (
-              <span className="peer-waiting-tip">等待对方确认…</span>
+              <div className="peer-waiting">
+                <span className="peer-waiting-tip">等待对方确认…</span>
+                <button type="button" className="peer-btn peer-btn-disconnect" onClick={onCancelConnect}>
+                  取消
+                </button>
+              </div>
             ) : (
               <form className="peer-connect" onSubmit={handleConnectSubmit}>
                 <input

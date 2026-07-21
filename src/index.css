@@ -519,6 +519,12 @@ body {
   white-space: nowrap;
 }
 
+.peer-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .peer-waiting-tip {
   font-size: 13px;
   color: var(--muted);
@@ -562,10 +568,9 @@ body {
 .peer-error {
   font-size: 12px;
   color: #cf222e;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1 1 100%;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 /* 发送文件按钮:浅绿底 + 绿色文字,与"接受"按钮区分但同色系 */
