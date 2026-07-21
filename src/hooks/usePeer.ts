@@ -26,6 +26,21 @@ export interface FileTransfer {
   error?: string
 }
 
+// 已完成的传输会沉淀为一条消息,显示在消息流里
+export interface Message {
+  id: string
+  direction: 'send' | 'receive'
+  kind: 'image' | 'file'
+  name: string
+  size: number
+  mime: string
+  // 图片:data URL,直接 <img src> 显示
+  dataUrl?: string
+  // 普通文件:Blob URL,供"下载"按钮使用
+  blobUrl?: string
+  timestamp: number
+}
+
 interface UsePeerOptions {
   onRemoteContent: (content: string) => void
 }
@@ -48,6 +63,28 @@ interface ReceiverState {
   meta: { id: string; name: string; size: number; mime: string }
   chunks: Map<number, ArrayBuffer>
   received: number
+}
+
+function isImageMime(mime: string): boolean {
+  return mime.toLowerCase().startsWith('image/')
+}
+
+// 把分片拼成 Blob
+function assembleBlob(chunks: Map<number, ArrayBuffer>, mime: string): Blob {
+  const arr = Array.from(chunks.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, buf]) => buf)
+  return new Blob(arr, { type: mime || 'application/octet-stream' })
+}
+
+// 把 Blob 转 data URL(用于图片内联显示)
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
 }
 
 // 把 PeerJS 原生错误(英文)翻译成中文友好提示,重点处理 ID 冲突
@@ -81,6 +118,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   // 主动方发起 connect 后等待对方 accept 期间为 true,用于 UI 区分"待机"与"等待确认"
   const [awaitingAccept, setAwaitingAccept] = useState(false)
   const [transfers, setTransfers] = useState<FileTransfer[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
 
   const peerRef = useRef<Peer | null>(null)
   const connRef = useRef<DataConnection | null>(null)
@@ -117,21 +155,56 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     cleanupTimers.current.set(id, timer)
   }, [])
 
-  // 触发浏览器下载
-  const triggerDownload = useCallback((meta: ReceiverState['meta'], chunks: Map<number, ArrayBuffer>) => {
-    const arr = Array.from(chunks.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([, buf]) => buf)
-    const blob = new Blob(arr, { type: meta.mime || 'application/octet-stream' })
+  // 触发浏览器下载(纯副作用)
+  const triggerBrowserDownload = useCallback((blob: Blob, name: string) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = meta.name
+    a.download = name
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }, [])
+
+  // 文件接收完成:图片生成 dataUrl 内联显示,其他文件触发下载并保留 blobUrl
+  const finalizeReceivedFile = useCallback(async (meta: ReceiverState['meta'], chunks: Map<number, ArrayBuffer>) => {
+    const blob = assembleBlob(chunks, meta.mime)
+    const isImage = isImageMime(meta.mime)
+    if (isImage) {
+      // 图片:转 data URL,加到消息流,不自动下载
+      try {
+        const dataUrl = await blobToDataUrl(blob)
+        setMessages(prev => [...prev, {
+          id: meta.id,
+          direction: 'receive',
+          kind: 'image',
+          name: meta.name,
+          size: meta.size,
+          mime: meta.mime,
+          dataUrl,
+          timestamp: Date.now(),
+        }])
+      } catch {
+        // dataUrl 失败(文件过大),降级为下载
+        triggerBrowserDownload(blob, meta.name)
+      }
+    } else {
+      // 非图片:触发下载 + 保留 blobUrl 到消息流供再次下载
+      const url = URL.createObjectURL(blob)
+      triggerBrowserDownload(blob, meta.name)
+      setMessages(prev => [...prev, {
+        id: meta.id,
+        direction: 'receive',
+        kind: 'file',
+        name: meta.name,
+        size: meta.size,
+        mime: meta.mime,
+        blobUrl: url,
+        timestamp: Date.now(),
+      }])
+    }
+  }, [triggerBrowserDownload])
 
   // 处理收到的数据:返回消息类型供调用方决定状态切换
   const handleData = useCallback((data: unknown): 'accept' | 'reject' | 'content' | 'file' | null => {
@@ -180,7 +253,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         case 'file-end': {
           const r = receiversRef.current.get(msg.id)
           if (r) {
-            triggerDownload(r.meta, r.chunks)
+            // 异步把分片拼成图片/文件,加到消息流
+            void finalizeReceivedFile(r.meta, r.chunks)
             upsertTransfer({
               id: r.meta.id,
               direction: 'receive',
@@ -215,7 +289,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       }
     }
     return null
-  }, [upsertTransfer, scheduleRemoval, triggerDownload])
+  }, [upsertTransfer, scheduleRemoval, finalizeReceivedFile])
 
   // 通用 close/error 绑定
   const bindLifecycle = useCallback((conn: DataConnection, onAccept?: () => void) => {
@@ -541,6 +615,38 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       status: 'done',
     })
     scheduleRemoval(id)
+
+    // 6. 发送方也把文件加到自己的消息流(图片内联,其他文件带 blobUrl)
+    const isImage = isImageMime(file.type)
+    if (isImage) {
+      try {
+        const dataUrl = await blobToDataUrl(file)
+        setMessages(prev => [...prev, {
+          id,
+          direction: 'send',
+          kind: 'image',
+          name: file.name,
+          size: file.size,
+          mime: file.type,
+          dataUrl,
+          timestamp: Date.now(),
+        }])
+      } catch {
+        // 忽略:发送方本地预览失败不影响传输
+      }
+    } else {
+      const url = URL.createObjectURL(file)
+      setMessages(prev => [...prev, {
+        id,
+        direction: 'send',
+        kind: 'file',
+        name: file.name,
+        size: file.size,
+        mime: file.type,
+        blobUrl: url,
+        timestamp: Date.now(),
+      }])
+    }
   }, [upsertTransfer, scheduleRemoval, getDC])
 
   // 取消传输(发送或接收都可调)
@@ -566,6 +672,16 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     })
   }, [scheduleRemoval])
 
+  // 清空消息流(同时释放 blobUrl 避免内存泄漏)
+  const clearMessages = useCallback(() => {
+    setMessages(prev => {
+      prev.forEach(m => {
+        if (m.blobUrl) URL.revokeObjectURL(m.blobUrl)
+      })
+      return []
+    })
+  }, [])
+
   return {
     myId,
     status,
@@ -573,6 +689,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     incomingFrom,
     awaitingAccept,
     transfers,
+    messages,
     init,
     acceptConn,
     rejectConn,
@@ -581,5 +698,6 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     send,
     sendFile,
     cancelTransfer,
+    clearMessages,
   }
 }

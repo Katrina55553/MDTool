@@ -2,7 +2,11 @@ import { useRef, useState } from 'react'
 import { useTheme } from '../context/ThemeContext'
 import type { FileTransfer, PeerStatus } from '../hooks/usePeer'
 
+type View = 'transfer' | 'markdown'
+
 interface ToolbarProps {
+  view: View
+  onSwitchView: (view: View) => void
   peerId: string
   peerStatus: PeerStatus
   peerError: string
@@ -99,6 +103,8 @@ function transferStatusLabel(t: FileTransfer): string {
 }
 
 export default function Toolbar({
+  view,
+  onSwitchView,
   peerId,
   peerStatus,
   peerError,
@@ -171,7 +177,17 @@ export default function Toolbar({
   return (
     <>
       <header className="toolbar">
-        <div className="toolbar-title">Markdown 转换器</div>
+        <div className="toolbar-brand">
+          <div className="toolbar-title">P2P 传输</div>
+          <button
+            type="button"
+            className="view-switch-btn"
+            onClick={() => onSwitchView(view === 'transfer' ? 'markdown' : 'transfer')}
+            title={view === 'transfer' ? '切换到 Markdown 工具' : '返回传输界面'}
+          >
+            {view === 'transfer' ? 'Markdown 工具' : '返回传输'}
+          </button>
+        </div>
 
         <div className="peer-panel">
           {needInit ? (
@@ -277,7 +293,8 @@ export default function Toolbar({
         </button>
       </header>
 
-      {transfers.length > 0 && (
+      {/* markdown 视图下仍显示传输条;transfer 视图由 MessageStream 内联展示 */}
+      {view === 'markdown' && transfers.length > 0 && (
         <div className="transfers-bar" role="region" aria-label="文件传输">
           {transfers.map(t => {
             const pct = t.size > 0 ? Math.min(100, Math.round((t.transferred / t.size) * 100)) : 0
