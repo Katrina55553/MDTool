@@ -50,6 +50,29 @@ interface ReceiverState {
   received: number
 }
 
+// 把 PeerJS 原生错误(英文)翻译成中文友好提示,重点处理 ID 冲突
+function translatePeerError(type: string | undefined, raw: string): string {
+  switch (type) {
+    case 'unavailable-id':
+      return '该 ID 已被占用,请换一个 1-99 之间的数字'
+    case 'invalid-id':
+      return 'ID 无效,请输入 1-99 之间的数字'
+    case 'browser-incompatible':
+      return '当前浏览器不支持 WebRTC,请换用 Chrome / Edge / Firefox 最新版'
+    case 'server-error':
+    case 'socket-error':
+    case 'socket-closed':
+    case 'network':
+      return '无法连接信令服务器,请检查网络后重试'
+    case 'webrtc':
+      return 'WebRTC 连接失败,可能受 NAT 限制,尝试同一局域网或换网络'
+    case 'peer-unavailable':
+      return '对方不在线或 ID 不正确,请确认对方已设置好 ID'
+    default:
+      return raw || '连接出错'
+  }
+}
+
 export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const [myId, setMyId] = useState<string>('')
   const [status, setStatus] = useState<PeerStatus>('idle')
@@ -281,7 +304,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
 
     peer.on('error', (err: unknown) => {
       const e = err as { message?: string; type?: string }
-      setError(e?.message ?? String(err))
+      setError(translatePeerError(e?.type, e?.message ?? String(err)))
       // ID 冲突(unavailable-id)等错误回到 idle,允许重新设置
       setStatus('idle')
       try { peer.destroy() } catch { /* 忽略 */ }
