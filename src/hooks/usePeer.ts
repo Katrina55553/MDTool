@@ -131,6 +131,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const receiversRef = useRef<Map<string, ReceiverState>>(new Map())
   // 发送方取消标记,由 cancelTransfer 设置,sendFile 循环检测
   const cancelRef = useRef<Set<string>>(new Set())
+  const transfersRef = useRef(transfers)
+  transfersRef.current = transfers
   // 已完成传输的自动清理定时器
   const cleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
@@ -489,6 +491,10 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     }
     if (file.size === 0) {
       setError('文件为空,无法发送')
+      return
+    }
+    if (transfersRef.current.some(t => t.direction === 'send' && t.status === 'active')) {
+      setError('正在发送另一个文件,请等待完成')
       return
     }
 

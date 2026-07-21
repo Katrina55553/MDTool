@@ -6,6 +6,7 @@ import Toolbar from './components/Toolbar'
 import MessageStream from './components/MessageStream'
 import { ThemeProvider } from './context/ThemeContext'
 import { useNotes } from './hooks/useNotes'
+import { usePasteImageSend } from './hooks/usePasteImageSend'
 import { usePeer } from './hooks/usePeer'
 import type { NotesState } from './types/note'
 import { isNotesState } from './utils/noteUtils'
@@ -67,6 +68,8 @@ function AppContent() {
 
   const content = activeNote?.content ?? ''
   const connected = status === 'connected'
+
+  usePasteImageSend({ connected, onSendFile: sendFile })
 
   return (
     <div className="app">

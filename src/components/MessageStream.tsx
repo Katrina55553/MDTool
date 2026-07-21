@@ -70,8 +70,8 @@ export default function MessageStream({ messages, transfers, connected, onClear 
         {!hasContent ? (
           <div className="stream-empty">
             {connected
-              ? '连接已建立。发送的图片会显示在这里,底部文本框可双方同步编辑。'
-              : '设置 ID 并连接后,即可在此传输图片与文字。'}
+              ? '连接已建立。可直接 Ctrl+V 粘贴图片发送,或使用工具栏「发送文件」。'
+              : '设置 ID 并连接后,即可传输图片、文件与共享笔记。'}
           </div>
         ) : (
           <>

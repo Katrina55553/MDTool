@@ -200,7 +200,7 @@ export default function Toolbar({
                   className="peer-btn peer-btn-file"
                   onClick={handleFilePick}
                   disabled={sendingActive}
-                  title={sendingActive ? '正在发送另一个文件,请等待完成' : '发送文件给对方(≤200MB)'}
+                  title={sendingActive ? '正在发送另一个文件,请等待完成' : '发送文件或图片(≤200MB),也可 Ctrl+V 粘贴图片'}
                 >
                   <UploadIcon />
                   发送文件
