@@ -8,6 +8,7 @@ interface ToolbarProps {
   peerError: string
   incomingFrom: string
   awaitingAccept: boolean
+  accepting: boolean
   transfers: FileTransfer[]
   onInit: (id: string) => void
   onConnect: (remoteId: string) => void
@@ -78,6 +79,7 @@ export default function Toolbar({
   peerError,
   incomingFrom,
   awaitingAccept,
+  accepting,
   transfers,
   onInit,
   onConnect,
@@ -186,10 +188,15 @@ export default function Toolbar({
                 <span className="peer-incoming-text">
                   {incomingFrom || '对方'} 请求连接
                 </span>
-                <button type="button" className="peer-btn peer-btn-accept" onClick={onAccept}>
-                  接受
+                <button
+                  type="button"
+                  className="peer-btn peer-btn-accept"
+                  onClick={onAccept}
+                  disabled={accepting}
+                >
+                  {accepting ? '连接中…' : '接受'}
                 </button>
-                <button type="button" className="peer-btn peer-btn-reject" onClick={onReject}>
+                <button type="button" className="peer-btn peer-btn-reject" onClick={onReject} disabled={accepting}>
                   拒绝
                 </button>
               </div>

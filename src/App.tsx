@@ -28,7 +28,7 @@ function AppContent() {
   }, [])
 
   const {
-    myId, status, error, incomingFrom, awaitingAccept, transfers, messages,
+    myId, status, error, incomingFrom, awaitingAccept, accepting, transfers, messages,
     init, acceptConn, rejectConn, connect, cancelConnect, disconnect, send, sendFile, clearMessages,
   } = usePeer({ onRemoteContent: handleRemoteContent })
   sendRef.current = send
@@ -79,6 +79,7 @@ function AppContent() {
         peerError={error}
         incomingFrom={incomingFrom}
         awaitingAccept={awaitingAccept}
+        accepting={accepting}
         transfers={transfers}
         onInit={init}
         onConnect={connect}

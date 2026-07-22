@@ -117,6 +117,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const [incomingFrom, setIncomingFrom] = useState<string>('')
   // 主动方发起 connect 后等待对方 accept 期间为 true,用于 UI 区分"待机"与"等待确认"
   const [awaitingAccept, setAwaitingAccept] = useState(false)
+  const [accepting, setAccepting] = useState(false)
   const [transfers, setTransfers] = useState<FileTransfer[]>([])
   const [messages, setMessages] = useState<Message[]>([])
 
@@ -133,6 +134,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const cancelRef = useRef<Set<string>>(new Set())
   const transfersRef = useRef(transfers)
   transfersRef.current = transfers
+  const acceptingRef = useRef(false)
   // 已完成传输的自动清理定时器
   const cleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
@@ -310,6 +312,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       if (connRef.current === conn) connRef.current = null
       if (outgoingConnRef.current === conn) outgoingConnRef.current = null
       setAwaitingAccept(false)
+      setAccepting(false)
+      acceptingRef.current = false
       // 连接断开:清理所有接收中和发送中的传输
       receiversRef.current.clear()
       cancelRef.current.clear()
@@ -346,16 +350,25 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     })
   }, [bindLifecycle])
 
-  // 被动方绑定(用户接受后调用):发 accept,转 connected
-  const bindResponder = useCallback((conn: DataConnection) => {
-    const onOpen = () => {
-      conn.send({ type: 'accept' } as ControlMsg)
-      connRef.current = conn
-      setStatus('connected')
-      setError('')
+  // 被动方:收到连接请求时,仅绑定 close/error,避免未接受前状态卡住
+  const bindPendingConnection = useCallback((conn: DataConnection) => {
+    const resetPending = () => {
+      if (pendingConnRef.current !== conn) return
+      pendingConnRef.current = null
+      setIncomingFrom('')
+      acceptingRef.current = false
+      setAccepting(false)
+      if (connRef.current !== conn) setStatus('waiting')
     }
-    if (conn.open) onOpen()
-    else conn.on('open', onOpen)
+    conn.on('close', resetPending)
+    conn.on('error', () => {
+      resetPending()
+      setError('连接请求失败,请让对方重试')
+    })
+  }, [])
+
+  // 被动方绑定(用户接受后调用):发 accept,转 connected
+  const bindEstablishedConnection = useCallback((conn: DataConnection) => {
     bindLifecycle(conn)
   }, [bindLifecycle])
 
@@ -380,6 +393,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         return
       }
       pendingConnRef.current = conn
+      bindPendingConnection(conn)
       setIncomingFrom(conn.peer)
       setStatus('incoming')
     })
@@ -392,19 +406,80 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       try { peer.destroy() } catch { /* 忽略 */ }
       peerRef.current = null
     })
-  }, [])
+  }, [bindPendingConnection])
 
   const acceptConn = useCallback(() => {
     const conn = pendingConnRef.current
-    if (!conn) return
-    pendingConnRef.current = null
-    setIncomingFrom('')
-    bindResponder(conn)
-  }, [bindResponder])
+    if (!conn) {
+      setError('连接请求已失效,请让对方重新连接')
+      setStatus('waiting')
+      return
+    }
+    if (acceptingRef.current) return
+
+    acceptingRef.current = true
+    setAccepting(true)
+    setError('')
+
+    let finalized = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    const failAccept = (message: string) => {
+      if (finalized) return
+      finalized = true
+      if (timeoutId) clearTimeout(timeoutId)
+      acceptingRef.current = false
+      setAccepting(false)
+      pendingConnRef.current = null
+      setIncomingFrom('')
+      setStatus('waiting')
+      setError(message)
+      try { conn.close() } catch { /* 忽略 */ }
+    }
+
+    const finalizeAccept = () => {
+      if (finalized) return
+      finalized = true
+      if (timeoutId) clearTimeout(timeoutId)
+      try {
+        conn.send({ type: 'accept' } as ControlMsg)
+      } catch (err) {
+        acceptingRef.current = false
+        setAccepting(false)
+        pendingConnRef.current = null
+        setStatus('waiting')
+        setError(err instanceof Error ? err.message : '接受连接失败,请重试')
+        return
+      }
+      pendingConnRef.current = null
+      setIncomingFrom('')
+      connRef.current = conn
+      bindEstablishedConnection(conn)
+      acceptingRef.current = false
+      setAccepting(false)
+      setStatus('connected')
+      setError('')
+    }
+
+    const waitForOpen = () => {
+      if (conn.open) {
+        finalizeAccept()
+        return
+      }
+      conn.on('open', finalizeAccept)
+      timeoutId = setTimeout(() => {
+        if (!conn.open) failAccept('连接建立超时,请让对方重试')
+      }, 15000)
+    }
+
+    waitForOpen()
+  }, [bindEstablishedConnection])
 
   const rejectConn = useCallback(() => {
     const conn = pendingConnRef.current
     if (!conn) return
+    acceptingRef.current = false
+    setAccepting(false)
     pendingConnRef.current = null
     setIncomingFrom('')
     const sendReject = () => {
@@ -713,6 +788,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     error,
     incomingFrom,
     awaitingAccept,
+    accepting,
     transfers,
     messages,
     init,
