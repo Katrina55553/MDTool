@@ -154,7 +154,10 @@ export default function Toolbar({
   return (
     <header className="toolbar">
       <div className="toolbar-brand">
-        <div className="toolbar-title">DuoLink</div>
+        <span className="brand-signal" aria-hidden="true" data-linked={connected ? 'true' : 'false'} />
+        <div className="toolbar-title">
+          Duo<span className="toolbar-title-accent">Link</span>
+        </div>
       </div>
 
       <div className="peer-panel">
