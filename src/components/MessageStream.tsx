@@ -6,6 +6,7 @@ interface MessageStreamProps {
   transfers: FileTransfer[]
   connected: boolean
   onClear: () => void
+  onCancel: (id: string) => void
 }
 
 function formatSize(bytes: number): string {
@@ -40,7 +41,16 @@ function TrashIcon() {
   )
 }
 
-export default function MessageStream({ messages, transfers, connected, onClear }: MessageStreamProps) {
+function XIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+export default function MessageStream({ messages, transfers, connected, onClear, onCancel }: MessageStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // 新消息或传输进度变化时,自动滚到底部
@@ -120,6 +130,16 @@ export default function MessageStream({ messages, transfers, connected, onClear 
                     <div className="msg-transfer-meta">
                       <span>{t.direction === 'send' ? '发送中' : '接收中'} · {pct}%</span>
                       <span>{formatSize(t.transferred)} / {formatSize(t.size)}</span>
+                      <button
+                        type="button"
+                        className="msg-transfer-cancel"
+                        onClick={() => onCancel(t.id)}
+                        title="取消传输"
+                        aria-label="取消传输"
+                      >
+                        <XIcon />
+                        取消
+                      </button>
                     </div>
                   </div>
                 </div>

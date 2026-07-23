@@ -23,7 +23,7 @@ export default function MermaidBlock({ code }: MermaidBlockProps) {
     mermaid.initialize({
       startOnLoad: false,
       theme: theme === 'dark' ? 'dark' : 'default',
-      securityLevel: 'loose',
+      securityLevel: 'strict',
     })
 
     mermaid

@@ -126,17 +126,22 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
   const pendingConnRef = useRef<DataConnection | null>(null)
   const outgoingConnRef = useRef<DataConnection | null>(null)
   const onRemoteRef = useRef(onRemoteContent)
-  onRemoteRef.current = onRemoteContent
+  const transfersRef = useRef(transfers)
+
+  // 通过 effect 同步最新值到 ref,避免渲染期写 ref 的副作用
+  useEffect(() => { onRemoteRef.current = onRemoteContent }, [onRemoteContent])
+  useEffect(() => { transfersRef.current = transfers }, [transfers])
 
   // 接收中的文件状态(按 fileId 索引)
   const receiversRef = useRef<Map<string, ReceiverState>>(new Map())
   // 发送方取消标记,由 cancelTransfer 设置,sendFile 循环检测
   const cancelRef = useRef<Set<string>>(new Set())
-  const transfersRef = useRef(transfers)
-  transfersRef.current = transfers
   const acceptingRef = useRef(false)
   // 已完成传输的自动清理定时器
   const cleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // 进度更新节流:每个传输 id 记录上次刷新时间,避免每个 chunk 都触发 setState 卡 UI
+  const progressTsRef = useRef<Map<string, number>>(new Map())
+  const PROGRESS_THROTTLE_MS = 100
 
   // 增量更新某条传输记录
   const upsertTransfer = useCallback((t: FileTransfer) => {
@@ -148,6 +153,16 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       return next
     })
   }, [])
+
+  // 节流地更新进度:超过阈值或传输完成时才真正写入 state
+  const upsertProgress = useCallback((t: FileTransfer, force = false) => {
+    if (!force) {
+      const last = progressTsRef.current.get(t.id) ?? 0
+      if (Date.now() - last < PROGRESS_THROTTLE_MS) return
+    }
+    progressTsRef.current.set(t.id, Date.now())
+    upsertTransfer(t)
+  }, [upsertTransfer])
 
   const scheduleRemoval = useCallback((id: string, delay = 3000) => {
     // 已有定时器先清掉
@@ -241,9 +256,12 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         case 'file-chunk': {
           const r = receiversRef.current.get(msg.id)
           if (r) {
-            r.chunks.set(msg.index, msg.data)
-            r.received += msg.data.byteLength
-            upsertTransfer({
+            // 去重:同 index chunk 重复到达时不重复累加
+            if (!r.chunks.has(msg.index)) {
+              r.chunks.set(msg.index, msg.data)
+              r.received += msg.data.byteLength
+            }
+            upsertProgress({
               id: r.meta.id,
               direction: 'receive',
               name: r.meta.name,
@@ -260,7 +278,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
           if (r) {
             // 异步把分片拼成图片/文件,加到消息流
             void finalizeReceivedFile(r.meta, r.chunks)
-            upsertTransfer({
+            // 完成态强制刷新,绕过节流
+            upsertProgress({
               id: r.meta.id,
               direction: 'receive',
               name: r.meta.name,
@@ -268,7 +287,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
               mime: r.meta.mime,
               transferred: r.meta.size,
               status: 'done',
-            })
+            }, true)
+            progressTsRef.current.delete(msg.id)
             receiversRef.current.delete(msg.id)
             scheduleRemoval(msg.id)
           }
@@ -277,7 +297,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         case 'file-cancel': {
           const r = receiversRef.current.get(msg.id)
           if (r) {
-            upsertTransfer({
+            upsertProgress({
               id: r.meta.id,
               direction: 'receive',
               name: r.meta.name,
@@ -285,7 +305,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
               mime: r.meta.mime,
               transferred: r.received,
               status: 'canceled',
-            })
+            }, true)
+            progressTsRef.current.delete(msg.id)
             receiversRef.current.delete(msg.id)
             scheduleRemoval(msg.id)
           }
@@ -294,7 +315,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       }
     }
     return null
-  }, [upsertTransfer, scheduleRemoval, finalizeReceivedFile])
+  }, [upsertProgress, scheduleRemoval, finalizeReceivedFile])
 
   // 通用 close/error 绑定
   const bindLifecycle = useCallback((conn: DataConnection, onAccept?: () => void) => {
@@ -322,6 +343,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       // 连接断开:清理所有接收中和发送中的传输
       receiversRef.current.clear()
       cancelRef.current.clear()
+      progressTsRef.current.clear()
       setTransfers(prev => prev.map(t =>
         t.status === 'active'
           ? { ...t, status: 'error', error: '连接已断开' }
@@ -442,6 +464,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       setError(translatePeerError(e?.type, e?.message ?? String(err)))
       // ID 冲突(unavailable-id)等错误回到 idle,允许重新设置
       setStatus('idle')
+      // 清空 myId,让 Toolbar 重新显示"设置 ID"入口
+      setMyId('')
       try { peer.destroy() } catch { /* 忽略 */ }
       peerRef.current = null
     })
@@ -515,6 +539,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       pendingConnRef.current = null
       cleanupTimers.current.forEach(t => clearTimeout(t))
       cleanupTimers.current.clear()
+      progressTsRef.current.clear()
     }
   }, [])
 
@@ -598,7 +623,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     })
 
     const failWith = (err: string, transferred: number) => {
-      upsertTransfer({
+      upsertProgress({
         id,
         direction: 'send',
         name: file.name,
@@ -607,7 +632,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         transferred,
         status: 'error',
         error: err,
-      })
+      }, true)
+      progressTsRef.current.delete(id)
       scheduleRemoval(id)
     }
 
@@ -631,7 +657,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       if (cancelRef.current.has(id)) {
         cancelRef.current.delete(id)
         try { conn.send({ type: 'file-cancel', id } as ControlMsg) } catch { /* 忽略 */ }
-        upsertTransfer({
+        upsertProgress({
           id,
           direction: 'send',
           name: file.name,
@@ -639,7 +665,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
           mime: file.type,
           transferred: i * CHUNK_SIZE,
           status: 'canceled',
-        })
+        }, true)
+        progressTsRef.current.delete(id)
         scheduleRemoval(id)
         return
       }
@@ -679,7 +706,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         return
       }
 
-      upsertTransfer({
+      upsertProgress({
         id,
         direction: 'send',
         name: file.name,
@@ -694,7 +721,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
     if (cancelRef.current.has(id)) {
       cancelRef.current.delete(id)
       try { conn.send({ type: 'file-cancel', id } as ControlMsg) } catch { /* 忽略 */ }
-      upsertTransfer({
+      upsertProgress({
         id,
         direction: 'send',
         name: file.name,
@@ -702,7 +729,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         mime: file.type,
         transferred: file.size,
         status: 'canceled',
-      })
+      }, true)
+      progressTsRef.current.delete(id)
       scheduleRemoval(id)
       return
     }
@@ -715,7 +743,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       return
     }
 
-    upsertTransfer({
+    upsertProgress({
       id,
       direction: 'send',
       name: file.name,
@@ -723,7 +751,8 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
       mime: file.type,
       transferred: file.size,
       status: 'done',
-    })
+    }, true)
+    progressTsRef.current.delete(id)
     scheduleRemoval(id)
 
     // 6. 发送方也把文件加到自己的消息流(图片内联,其他文件带 blobUrl)
@@ -757,7 +786,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
         timestamp: Date.now(),
       }])
     }
-  }, [upsertTransfer, scheduleRemoval, getDC])
+  }, [upsertProgress, scheduleRemoval, getDC])
 
   // 取消传输(发送或接收都可调)
   const cancelTransfer = useCallback((id: string) => {
@@ -774,6 +803,7 @@ export function usePeer({ onRemoteContent }: UsePeerOptions) {
           try { conn.send({ type: 'file-cancel', id } as ControlMsg) } catch { /* 忽略 */ }
         }
         receiversRef.current.delete(id)
+        progressTsRef.current.delete(id)
         const next = prev.map(x => x.id === id ? { ...x, status: 'canceled' as const } : x)
         scheduleRemoval(id)
         return next

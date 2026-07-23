@@ -14,7 +14,7 @@ export default function Preview({ content }: PreviewProps) {
     <div className="preview">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false }], [rehypeHighlight, { ignoreMissing: true }]]}
         components={{
           code({ className, children, ...rest }) {
             const match = /language-(\w+)/.exec(className || '')

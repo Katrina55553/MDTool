@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import type { NotesState } from '../types/note'
 import { useLocalStorage } from './useLocalStorage'
 import { createNote, loadInitialNotesState, updateActiveNoteContent } from '../utils/noteUtils'
@@ -10,7 +10,12 @@ interface UseNotesOptions {
 
 export function useNotes(options?: UseNotesOptions) {
   const onStateChange = options?.onStateChange
-  const [state, setState] = useLocalStorage<NotesState>('md-notes', loadInitialNotesState())
+  const initial = useMemo(() => loadInitialNotesState(), [])
+  const [state, setState] = useLocalStorage<NotesState>('md-notes', initial)
+
+  // 用 ref 作为 mutate 的读取源,避免在 setState updater 内调用副作用
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   const activeNote = useMemo(
     () => state.notes.find((n) => n.id === state.activeNoteId) ?? state.notes[0],
@@ -19,17 +24,18 @@ export function useNotes(options?: UseNotesOptions) {
 
   const mutate = useCallback(
     (updater: (prev: NotesState) => NotesState) => {
-      setState((prev) => {
-        const next = updater(prev)
-        onStateChange?.(next)
-        return next
-      })
+      const next = updater(stateRef.current)
+      stateRef.current = next
+      setState(next)
+      // 副作用移出 setState updater,避免 StrictMode 下重复触发
+      onStateChange?.(next)
     },
     [setState, onStateChange],
   )
 
   const replaceState = useCallback(
     (next: NotesState) => {
+      stateRef.current = next
       setState(next)
     },
     [setState],

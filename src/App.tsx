@@ -29,9 +29,8 @@ function AppContent() {
 
   const {
     myId, status, error, incomingFrom, awaitingAccept, accepting, transfers, messages,
-    init, acceptConn, rejectConn, connect, cancelConnect, disconnect, send, sendFile, clearMessages,
+    init, acceptConn, rejectConn, connect, cancelConnect, disconnect, send, sendFile, cancelTransfer, clearMessages,
   } = usePeer({ onRemoteContent: handleRemoteContent })
-  sendRef.current = send
 
   const syncNotes = useCallback((next: NotesState) => {
     notesRef.current = next
@@ -48,8 +47,10 @@ function AppContent() {
     deleteNote,
   } = useNotes({ onStateChange: syncNotes })
 
-  replaceStateRef.current = replaceState
-  notesRef.current = state
+  // 把会变化的引用通过 effect 同步到 ref,避免渲染期写 ref 的副作用
+  useEffect(() => { sendRef.current = send }, [send])
+  useEffect(() => { replaceStateRef.current = replaceState }, [replaceState])
+  useEffect(() => { notesRef.current = state }, [state])
 
   const prevStatus = useRef(status)
   useEffect(() => {
@@ -58,13 +59,6 @@ function AppContent() {
     }
     prevStatus.current = status
   }, [status, send])
-
-  const handleChange = useCallback(
-    (value: string) => {
-      setActiveContent(value)
-    },
-    [setActiveContent],
-  )
 
   const content = activeNote?.content ?? ''
   const connected = status === 'connected'
@@ -96,6 +90,7 @@ function AppContent() {
             transfers={transfers}
             connected={connected}
             onClear={clearMessages}
+            onCancel={cancelTransfer}
           />
         </div>
         <div className="transfer-note">
@@ -115,7 +110,7 @@ function AppContent() {
             />
             <div className="main">
               <div className="pane pane-editor">
-                <Editor value={content} onChange={handleChange} />
+                <Editor value={content} onChange={setActiveContent} />
               </div>
               <div className="pane pane-preview">
                 <Preview content={content} />

@@ -69,6 +69,7 @@ function statusLabel(status: PeerStatus): string {
     case 'waiting': return '等待连接'
     case 'incoming': return '收到请求'
     case 'connected': return '已连接'
+    // 'error' 不会出现:所有错误路径都会回落到 idle/waiting,这里仅作类型兜底
     case 'error': return '连接错误'
   }
 }

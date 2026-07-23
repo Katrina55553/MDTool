@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { getNoteTitle } from '../utils/noteUtils'
 import type { Note } from '../types/note'
 
@@ -19,8 +20,8 @@ function TrashIcon() {
   )
 }
 
-export default function NoteSidebar({ notes, activeNoteId, onSelect, onCreate, onDelete }: NoteSidebarProps) {
-  const sorted = [...notes].sort((a, b) => b.updatedAt - a.updatedAt)
+function NoteSidebarBase({ notes, activeNoteId, onSelect, onCreate, onDelete }: NoteSidebarProps) {
+  const sorted = useMemo(() => [...notes].sort((a, b) => b.updatedAt - a.updatedAt), [notes])
 
   return (
     <aside className="note-sidebar">
@@ -34,34 +35,32 @@ export default function NoteSidebar({ notes, activeNoteId, onSelect, onCreate, o
         {sorted.map((note) => {
           const active = note.id === activeNoteId
           return (
-            <li key={note.id}>
+            <li
+              key={note.id}
+              className={`note-item${active ? ' note-item-active' : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(note.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(note.id)
+                }
+              }}
+              title={getNoteTitle(note.content)}
+            >
+              <span className="note-item-title">{getNoteTitle(note.content)}</span>
               <button
                 type="button"
-                className={`note-item${active ? ' note-item-active' : ''}`}
-                onClick={() => onSelect(note.id)}
-                title={getNoteTitle(note.content)}
+                className="note-delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDelete(note.id)
+                }}
+                title="删除笔记"
+                aria-label="删除笔记"
               >
-                <span className="note-item-title">{getNoteTitle(note.content)}</span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="note-delete-btn"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(note.id)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      onDelete(note.id)
-                    }
-                  }}
-                  title="删除笔记"
-                  aria-label="删除笔记"
-                >
-                  <TrashIcon />
-                </span>
+                <TrashIcon />
               </button>
             </li>
           )
@@ -70,3 +69,6 @@ export default function NoteSidebar({ notes, activeNoteId, onSelect, onCreate, o
     </aside>
   )
 }
+
+const NoteSidebar = memo(NoteSidebarBase)
+export default NoteSidebar
